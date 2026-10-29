@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	maxInflight = 32 // must be a power of two; xid low bits carry the slot index
+	slotBits    = 6 // xid low bits carry the slot index
+	maxInflight = 1 << slotBits
 	maxRecord   = 64 << 20
 	rpcVersion  = 2
 	authNone    = 0
@@ -75,9 +76,9 @@ func newRPCConn(conn net.Conn, uid, gid uint32) *rpcConn {
 }
 
 func (c *rpcConn) nextXID() uint32 {
-	// Keep the counter in 1..2^27-1 so xid is never 0 and the shift can't overflow.
-	c.counter = c.counter%(1<<27-1) + 1
-	return c.counter << 5
+	// Keep the counter in 1..2^(32-slotBits)-1 so xid is never 0 and the shift can't overflow.
+	c.counter = c.counter%(1<<(32-slotBits)-1) + 1
+	return c.counter << slotBits
 }
 
 func (c *rpcConn) encodeCall(xid, prog, vers, proc uint32, args []byte) []byte {

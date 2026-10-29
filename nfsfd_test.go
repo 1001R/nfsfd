@@ -176,7 +176,7 @@ func TestInflightLimitAndOutOfOrder(t *testing.T) {
 	srv := <-srvConn
 	defer srv.conn.Close()
 
-	const total = 40
+	const total = maxInflight + 8
 	var sent atomic.Int32
 	go func() {
 		for i := range total {
