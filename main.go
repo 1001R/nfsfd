@@ -63,9 +63,30 @@ func main() {
 	}
 }
 
-func dial(ctx context.Context, addr string, port int, cfg config) (*rpcConn, error) {
+// nextPort spreads connections across the reserved range so concurrent dials rarely collide.
+var nextPort atomic.Uint32
+
+// dialTCP uses a source port below 1024 when running as root, as servers with secure exports require.
+func dialTCP(ctx context.Context, addr string) (net.Conn, error) {
 	d := net.Dialer{Timeout: 10 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
+	if os.Geteuid() != 0 {
+		return d.DialContext(ctx, "tcp", addr)
+	}
+	const lo, hi = 512, 1023
+	const n = hi - lo + 1
+	start := nextPort.Add(1)
+	for i := range uint32(n) {
+		d.LocalAddr = &net.TCPAddr{Port: hi - int((start+i)%n)}
+		conn, err := d.DialContext(ctx, "tcp", addr)
+		if err == nil || !errors.Is(err, syscall.EADDRINUSE) {
+			return conn, err
+		}
+	}
+	return nil, errors.New("no free reserved source port")
+}
+
+func dial(ctx context.Context, addr string, port int, cfg config) (*rpcConn, error) {
+	conn, err := dialTCP(ctx, net.JoinHostPort(addr, strconv.Itoa(port)))
 	if err != nil {
 		return nil, err
 	}
