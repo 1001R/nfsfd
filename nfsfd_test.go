@@ -40,13 +40,18 @@ func TestAppendEntry(t *testing.T) {
 	p.groups.Store(uint32(1000), "staff")
 	a := &fattr{ftype: ftypeReg, mode: 0o644, nlink: 1, uid: 1000, gid: 1000, size: 123, mtimeSec: 1700000000}
 	got := string(p.appendEntry(nil, "/d/f", a))
-	want := "-rw-r--r--   1 alice    staff           123 2023-11-14T22:13:20Z /d/f\n"
+	want := "-rw-r--r--,alice,staff,123,2023-11-14T22:13:20Z,\"/d/f\"\n"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	a = &fattr{ftype: ftypeDir, mode: 0o755, nlink: 2, uid: 1000, gid: 1000, size: 4096, mtimeSec: 1700000000}
 	got = string(p.appendEntry(nil, "/d", a))
-	want = "drwxr-xr-x   2 alice    staff             0 2023-11-14T22:13:20Z /d\n"
+	want = "drwxr-xr-x,alice,staff,0,2023-11-14T22:13:20Z,\"/d\"\n"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	got = string(p.appendEntry(nil, `/d/a"b,c`, a))
+	want = "drwxr-xr-x,alice,staff,0,2023-11-14T22:13:20Z,\"/d/a\"\"b,c\"\n"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

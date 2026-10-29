@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 // item is one READDIRPLUS request; cookie 0 starts a directory.
@@ -91,6 +92,10 @@ func (w *worker) handle(r reply) []item {
 	defer func() { w.out.write(lines) }()
 	for _, e := range pg.entries {
 		if e.name == "." || e.name == ".." {
+			continue
+		}
+		if !utf8.ValidString(e.name) {
+			w.warn(p.path, fmt.Errorf("invalid UTF-8, skipping entry %q", e.name))
 			continue
 		}
 		full := path.Join(p.path, e.name)

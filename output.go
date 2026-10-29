@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-	"unicode/utf8"
 )
 
 type printer struct {
@@ -44,19 +43,30 @@ func (p *printer) appendEntry(dst []byte, path string, a *fattr) []byte {
 		size = a.size
 	}
 	dst = appendMode(dst, a.ftype, a.mode)
-	dst = append(dst, ' ')
-	dst = appendPadLeft(dst, strconv.FormatUint(uint64(a.nlink), 10), 3)
-	dst = append(dst, ' ')
-	dst = appendPadRight(dst, lookupName(&p.users, a.uid, userName), 8)
-	dst = append(dst, ' ')
-	dst = appendPadRight(dst, lookupName(&p.groups, a.gid, groupName), 8)
-	dst = append(dst, ' ')
-	dst = appendPadLeft(dst, strconv.FormatUint(size, 10), 10)
-	dst = append(dst, ' ')
+	// dst = append(dst, ',')
+	// dst = appendPadLeft(dst, strconv.FormatUint(uint64(a.nlink), 10), 3)
+	dst = append(dst, ',')
+	dst = append(dst, lookupName(&p.users, a.uid, userName)...)
+	dst = append(dst, ',')
+	dst = append(dst, lookupName(&p.groups, a.gid, groupName)...)
+	dst = append(dst, ',')
+	dst = append(dst, strconv.FormatUint(size, 10)...)
+	dst = append(dst, ',')
 	dst = time.Unix(int64(a.mtimeSec), int64(a.mtimeNsec)).UTC().AppendFormat(dst, "2006-01-02T15:04:05Z")
-	dst = append(dst, ' ')
-	dst = append(dst, path...)
+	dst = append(dst, ',')
+	dst = appendCSVQuoted(dst, path)
 	return append(dst, '\n')
+}
+
+func appendCSVQuoted(dst []byte, s string) []byte {
+	dst = append(dst, '"')
+	for i := 0; i < len(s); i++ {
+		if s[i] == '"' {
+			dst = append(dst, '"')
+		}
+		dst = append(dst, s[i])
+	}
+	return append(dst, '"')
 }
 
 func userName(id string) (string, error) {
@@ -73,21 +83,6 @@ func groupName(id string) (string, error) {
 		return "", err
 	}
 	return g.Name, nil
-}
-
-func appendPadLeft(dst []byte, s string, width int) []byte {
-	for n := utf8.RuneCountInString(s); n < width; n++ {
-		dst = append(dst, ' ')
-	}
-	return append(dst, s...)
-}
-
-func appendPadRight(dst []byte, s string, width int) []byte {
-	dst = append(dst, s...)
-	for n := utf8.RuneCountInString(s); n < width; n++ {
-		dst = append(dst, ' ')
-	}
-	return dst
 }
 
 // lookupName caches resolved names and falls back to the numeric id.
