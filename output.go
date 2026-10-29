@@ -2,12 +2,12 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"os/user"
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type printer struct {
@@ -18,7 +18,17 @@ type printer struct {
 }
 
 func newPrinter(w io.Writer) *printer {
-	return &printer{w: bufio.NewWriter(w)}
+	return &printer{w: bufio.NewWriterSize(w, 64<<10)}
+}
+
+// write emits a batch of complete lines atomically.
+func (p *printer) write(b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	p.mu.Lock()
+	p.w.Write(b)
+	p.mu.Unlock()
 }
 
 func (p *printer) flush() {
@@ -27,33 +37,57 @@ func (p *printer) flush() {
 	p.w.Flush()
 }
 
-func (p *printer) entry(path string, a *fattr) {
+// appendEntry appends one find -ls style line to dst.
+func (p *printer) appendEntry(dst []byte, path string, a *fattr) []byte {
 	var size uint64
 	if a.ftype == ftypeReg {
 		size = a.size
 	}
-	mtime := time.Unix(int64(a.mtimeSec), int64(a.mtimeNsec)).UTC().Format("2006-01-02T15:04:05Z")
-	line := fmt.Sprintf("%s %3d %-8s %-8s %10d %s %s\n",
-		modeString(a.ftype, a.mode), a.nlink,
-		lookupName(&p.users, a.uid, func(id string) (string, error) {
-			u, err := user.LookupId(id)
-			if err != nil {
-				return "", err
-			}
-			return u.Username, nil
-		}),
-		lookupName(&p.groups, a.gid, func(id string) (string, error) {
-			g, err := user.LookupGroupId(id)
-			if err != nil {
-				return "", err
-			}
-			return g.Name, nil
-		}),
-		size, mtime, path)
+	dst = appendMode(dst, a.ftype, a.mode)
+	dst = append(dst, ' ')
+	dst = appendPadLeft(dst, strconv.FormatUint(uint64(a.nlink), 10), 3)
+	dst = append(dst, ' ')
+	dst = appendPadRight(dst, lookupName(&p.users, a.uid, userName), 8)
+	dst = append(dst, ' ')
+	dst = appendPadRight(dst, lookupName(&p.groups, a.gid, groupName), 8)
+	dst = append(dst, ' ')
+	dst = appendPadLeft(dst, strconv.FormatUint(size, 10), 10)
+	dst = append(dst, ' ')
+	dst = time.Unix(int64(a.mtimeSec), int64(a.mtimeNsec)).UTC().AppendFormat(dst, "2006-01-02T15:04:05Z")
+	dst = append(dst, ' ')
+	dst = append(dst, path...)
+	return append(dst, '\n')
+}
 
-	p.mu.Lock()
-	p.w.WriteString(line)
-	p.mu.Unlock()
+func userName(id string) (string, error) {
+	u, err := user.LookupId(id)
+	if err != nil {
+		return "", err
+	}
+	return u.Username, nil
+}
+
+func groupName(id string) (string, error) {
+	g, err := user.LookupGroupId(id)
+	if err != nil {
+		return "", err
+	}
+	return g.Name, nil
+}
+
+func appendPadLeft(dst []byte, s string, width int) []byte {
+	for n := utf8.RuneCountInString(s); n < width; n++ {
+		dst = append(dst, ' ')
+	}
+	return append(dst, s...)
+}
+
+func appendPadRight(dst []byte, s string, width int) []byte {
+	dst = append(dst, s...)
+	for n := utf8.RuneCountInString(s); n < width; n++ {
+		dst = append(dst, ' ')
+	}
+	return dst
 }
 
 // lookupName caches resolved names and falls back to the numeric id.
@@ -70,7 +104,13 @@ func lookupName(cache *sync.Map, id uint32, resolve func(string) (string, error)
 }
 
 func modeString(ftype, mode uint32) string {
-	b := []byte("----------")
+	return string(appendMode(nil, ftype, mode))
+}
+
+func appendMode(dst []byte, ftype, mode uint32) []byte {
+	var buf [10]byte
+	b := buf[:]
+	copy(b, "----------")
 	switch ftype {
 	case ftypeDir:
 		b[0] = 'd'
@@ -107,5 +147,5 @@ func modeString(ftype, mode uint32) string {
 	special(0o4000, 3, 's', 'S')
 	special(0o2000, 6, 's', 'S')
 	special(0o1000, 9, 't', 'T')
-	return string(b)
+	return append(dst, b...)
 }

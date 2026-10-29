@@ -87,6 +87,8 @@ func (w *worker) handle(r reply) []item {
 	}
 
 	var next []item
+	var lines []byte
+	defer func() { w.out.write(lines) }()
 	for _, e := range pg.entries {
 		if e.name == "." || e.name == ".." {
 			continue
@@ -96,7 +98,7 @@ func (w *worker) handle(r reply) []item {
 			w.warn(full, fmt.Errorf("server returned no attributes, skipping"))
 			continue
 		}
-		w.out.entry(full, e.attr)
+		lines = w.out.appendEntry(lines, full, e.attr)
 		if e.attr.ftype != ftypeDir {
 			continue
 		}
