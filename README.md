@@ -15,18 +15,18 @@ Requires Go 1.26 (see `mise.toml`).
 
 ## Usage
 
-```
+```sh
 nfsfd [flags] hostname export directory
 ```
 
 | Argument | Meaning |
-|---|---|
+| --- | --- |
 | `hostname` | NFS server. If it resolves to several addresses, workers use them round-robin. |
 | `export` | Exported path to mount, as listed by `showmount -e`. |
 | `directory` | Directory inside the export to list (`/` or `.` for the export root). |
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `-workers` | `4` | Number of workers, each with its own TCP connection. |
 | `-uid` | current uid | uid sent in the `AUTH_SYS` credential. |
 | `-gid` | current gid | gid sent in the `AUTH_SYS` credential. |
@@ -37,7 +37,7 @@ nfsfd [flags] hostname export directory
 Example:
 
 ```sh
-nfsfd -workers 8 nfs.example.com /export/data projects | gzip > inventory.csv.gz
+nfsfd -workers 8 nfs.example.com /export/data projects | zstd -qo inventory.csv.zstd
 ```
 
 Warnings go to stderr. The exit status is 1 if any entry was skipped or a fatal error occurred.
@@ -46,7 +46,7 @@ Warnings go to stderr. The exit status is 1 if any entry was skipped or a fatal 
 
 One line per entry, with no header. The starting directory itself is not printed.
 
-```
+```text
 mode,owner,group,size,mtime,"path"
 drwxr-xr-x,alice,staff,0,2023-11-14T22:13:20Z,"projects/src"
 -rw-r--r--,alice,staff,123,2023-11-14T22:13:20Z,"projects/src/main.go"
@@ -73,26 +73,31 @@ Output order is not deterministic because directories are listed concurrently.
 
 ## Loading the output into DuckDB
 
-DuckDB reads the gzip-compressed CSV directly and can write Parquet:
+DuckDB reads the zstd-compressed CSV directly and can write Parquet:
 
 ```sql
+duckdb <<EOF
 COPY (
-  SELECT * FROM read_csv('inventory.csv.gz',
+  SELECT * FROM read_csv(
+    'inventory.csv.zstd',
     header = false,
+    compression = 'zstd',
+    escape = '"',
     columns = {
       'mode': 'VARCHAR', 'owner': 'VARCHAR', 'grp': 'VARCHAR',
-      'size': 'UBIGINT', 'mtime': 'TIMESTAMP', 'path': 'VARCHAR'
-    },
-    timestampformat = '%Y-%m-%dT%H:%M:%SZ')
-) TO 'inventory.parquet' (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 1000000);
+      'size': 'UBIGINT', 'mtime': 'TIMESTAMPTZ', 'path': 'VARCHAR'
+    }
+  )
+) TO 'inventory.parquet' (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 1000000)
+EOF
 ```
 
-A single `.gz` file is decompressed on one thread. For very large shares, split the output into several files and read them with a glob.
+A single `.zstd` file is decompressed on one thread. For very large shares, split the output into several files and read them with a glob.
 
 ## Files
 
 | File | Purpose |
-|---|---|
+| --- | --- |
 | `main.go` | Flags, host resolution, port discovery, mount and root lookup, work scheduling. |
 | `worker.go` | Per-connection sender and receiver goroutines, reply handling. |
 | `rpc.go` | Pipelined ONC RPC client over TCP with record marking and `AUTH_SYS`. |
