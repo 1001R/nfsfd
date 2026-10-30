@@ -11,7 +11,7 @@ go build -o nfsfd .
 go test -race ./...
 ```
 
-Requires Go 1.27 (see `mise.toml`).
+Requires Go 1.26 (see `mise.toml`).
 
 ## Usage
 
