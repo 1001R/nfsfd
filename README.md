@@ -32,6 +32,7 @@ nfsfd [flags] hostname export directory
 | `-gid` | current gid | gid sent in the `AUTH_SYS` credential. |
 | `-mountport` | portmapper | mountd TCP port. |
 | `-nfsport` | portmapper, then 2049 | nfsd TCP port. |
+| `-version` | | Print version and commit hash, then exit. |
 
 Example:
 

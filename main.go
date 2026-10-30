@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,36 @@ const (
 	defaultNFS  = 2049
 )
 
+// Set at build time: -ldflags "-X main.version=..."
+var version = "dev"
+
+// buildCommit returns the VCS revision the Go toolchain embedded at build time.
+func buildCommit() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	var rev string
+	var dirty bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if rev == "" {
+		return "unknown"
+	} else if len(rev) > 8 {
+		rev = rev[:8]
+	}
+	if dirty {
+		rev += "-dirty"
+	}
+	return rev
+}
+
 type config struct {
 	host, export, dir string
 	workers           int
@@ -33,6 +64,8 @@ type config struct {
 func main() {
 	var cfg config
 	var uid, gid uint
+	var showVersion bool
+	flag.BoolVar(&showVersion, "version", false, "print version and commit hash, then exit")
 	flag.IntVar(&cfg.workers, "workers", 4, "number of workers, each with its own connection")
 	flag.UintVar(&uid, "uid", uint(os.Getuid()), "uid for AUTH_SYS")
 	flag.UintVar(&gid, "gid", uint(os.Getgid()), "gid for AUTH_SYS")
@@ -43,6 +76,10 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if showVersion {
+		fmt.Printf("nfsfd version %s (commit %s)\n", version, buildCommit())
+		return
+	}
 	if flag.NArg() != 3 || cfg.workers < 1 {
 		flag.Usage()
 		os.Exit(2)
